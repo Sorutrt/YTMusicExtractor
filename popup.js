@@ -4,6 +4,10 @@ const copyButton = document.getElementById("copy-btn");
 const resultContainer = document.getElementById("result-container");
 const statusMessage = document.getElementById("status-msg");
 const canUseUrl = typeof isExtractableUrl === "function" ? isExtractableUrl : () => false;
+const RETRY_MAX_ATTEMPTS = 20;
+const RETRY_WAIT_MS = 250;
+const RETRY_SCROLL_EVERY = 4;
+const RETRY_SCROLL_AMOUNT = 400;
 
 let lastTabUrl = "";
 
@@ -15,6 +19,25 @@ function resetResults() {
 
 function getUnsupportedMessage() {
   return "アルバム/EP/プレイリストページで実行してください";
+}
+
+function toErrorMessage(error) {
+  return String((error && error.message) || error);
+}
+
+function formatNoResultsStatus(payload) {
+  const rows = payload.stats && typeof payload.stats.rows === "number" ? payload.stats.rows : "?";
+  const links = payload.stats && typeof payload.stats.watchLinks === "number" ? payload.stats.watchLinks : "?";
+  const detail = payload.error ? ` err:${payload.error}` : "";
+  return `曲が見つかりませんでした（${payload.attempt}回試行 / rows:${rows} links:${links}${detail}）。`;
+}
+
+function showResults(titles, attempt) {
+  const formattedList = titles.map((title, index) => `${index + 1}. ${title}`).join("\n");
+  resultContainer.textContent = formattedList;
+  resultContainer.style.display = "block";
+  copyButton.style.display = "block";
+  statusMessage.textContent = `${titles.length}件抽出しました（${attempt}回目）`;
 }
 
 async function executeScript(target, options) {
@@ -71,11 +94,9 @@ async function extractOnce(tabId) {
 }
 
 async function extractWithRetry(tabId) {
-  const maxAttempts = 20;
-  const waitMs = 250;
   let lastPayload = { titles: [], stats: null, error: "no_result" };
 
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+  for (let attempt = 0; attempt < RETRY_MAX_ATTEMPTS; attempt += 1) {
     const payload = await extractOnce(tabId);
     lastPayload = payload;
 
@@ -83,21 +104,22 @@ async function extractWithRetry(tabId) {
       return { ...payload, attempt: attempt + 1 };
     }
 
-    if (attempt % 4 === 3) {
+    if (attempt % RETRY_SCROLL_EVERY === RETRY_SCROLL_EVERY - 1) {
       await executeScript(
         { tabId },
         {
-          func: () => {
-            window.scrollBy(0, 400);
+          func: (scrollAmount) => {
+            window.scrollBy(0, scrollAmount);
           },
+          args: [RETRY_SCROLL_AMOUNT],
         }
       );
     }
 
-    await sleep(waitMs);
+    await sleep(RETRY_WAIT_MS);
   }
 
-  return { ...lastPayload, attempt: maxAttempts };
+  return { ...lastPayload, attempt: RETRY_MAX_ATTEMPTS };
 }
 
 async function getActiveTab() {
@@ -172,21 +194,13 @@ extractButton.addEventListener("click", async () => {
     const payload = await extractWithRetry(tab.id);
     const titles = payload.titles;
     if (titles.length === 0) {
-      const rows = payload.stats && typeof payload.stats.rows === "number" ? payload.stats.rows : "?";
-      const links =
-        payload.stats && typeof payload.stats.watchLinks === "number" ? payload.stats.watchLinks : "?";
-      const detail = payload.error ? ` err:${payload.error}` : "";
-      statusMessage.textContent = `曲が見つかりませんでした（${payload.attempt}回試行 / rows:${rows} links:${links}${detail}）。`;
+      statusMessage.textContent = formatNoResultsStatus(payload);
       return;
     }
 
-    const formattedList = titles.map((title, index) => `${index + 1}. ${title}`).join("\n");
-    resultContainer.textContent = formattedList;
-    resultContainer.style.display = "block";
-    copyButton.style.display = "block";
-    statusMessage.textContent = `${titles.length}件抽出しました（${payload.attempt}回目）`;
+    showResults(titles, payload.attempt);
   } catch (error) {
-    statusMessage.textContent = `抽出に失敗しました: ${error.message || error}`;
+    statusMessage.textContent = `抽出に失敗しました: ${toErrorMessage(error)}`;
   }
 });
 

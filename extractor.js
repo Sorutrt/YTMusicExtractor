@@ -9,6 +9,28 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   const HEADER_TITLES = new Set(["song", "title", "曲名"]);
   const YT_MUSIC_ORIGIN = "https://music.youtube.com";
+  const WATCH_LINK_SELECTOR = 'a[href*="watch?v="], a[href*="/watch"]';
+  const TITLE_SELECTORS = [
+    'ytmusic-responsive-list-item-flex-column-renderer:first-child a[title]',
+    "ytmusic-responsive-list-item-flex-column-renderer:first-child a",
+    'ytmusic-responsive-list-item-flex-column-renderer:first-child yt-formatted-string[title]',
+    "ytmusic-responsive-list-item-flex-column-renderer:first-child yt-formatted-string",
+    '.title-column yt-formatted-string[title]',
+    ".title-column yt-formatted-string",
+    '.title-column a[title]',
+    ".title-column a",
+    'yt-formatted-string.title[title]',
+    "yt-formatted-string.title",
+    ".title[title]",
+    ".title",
+    '#title a[title]',
+    "#title a",
+    "#title yt-formatted-string",
+    'a[href*="watch?v="][title]',
+    'a[href*="watch?v="]',
+    'a[href*="/watch"][title]',
+    'a[href*="/watch"]',
+  ];
 
   function normalizeText(text) {
     return (text || "").replace(/\s+/g, " ").trim();
@@ -31,38 +53,19 @@
     return HEADER_TITLES.has(title.toLowerCase());
   }
 
-  function extractTitleFromRow(row) {
-    const candidates = [
-      'ytmusic-responsive-list-item-flex-column-renderer:first-child a[title]',
-      "ytmusic-responsive-list-item-flex-column-renderer:first-child a",
-      'ytmusic-responsive-list-item-flex-column-renderer:first-child yt-formatted-string[title]',
-      "ytmusic-responsive-list-item-flex-column-renderer:first-child yt-formatted-string",
-      '.title-column yt-formatted-string[title]',
-      ".title-column yt-formatted-string",
-      '.title-column a[title]',
-      ".title-column a",
-      'yt-formatted-string.title[title]',
-      "yt-formatted-string.title",
-      ".title[title]",
-      ".title",
-      '#title a[title]',
-      "#title a",
-      "#title yt-formatted-string",
-      'a[href*="watch?v="][title]',
-      'a[href*="watch?v="]',
-      'a[href*="/watch"][title]',
-      'a[href*="/watch"]',
-    ];
-
-    for (const selector of candidates) {
-      const node = row.querySelector(selector);
+  function findFirstTitleBySelectors(rootNode, selectors) {
+    for (const selector of selectors) {
+      const node = rootNode.querySelector(selector);
       const text = getText(node);
       if (text && !isHeaderLikeTitle(text)) {
         return text;
       }
     }
+    return "";
+  }
 
-    const titleElements = Array.from(row.querySelectorAll('[title], yt-formatted-string, a'));
+  function findFirstTitleByFallback(rootNode) {
+    const titleElements = Array.from(rootNode.querySelectorAll('[title], yt-formatted-string, a'));
     for (const node of titleElements) {
       const text = getText(node);
       if (!text || isHeaderLikeTitle(text)) {
@@ -70,8 +73,11 @@
       }
       return text;
     }
-
     return "";
+  }
+
+  function extractTitleFromRow(row) {
+    return findFirstTitleBySelectors(row, TITLE_SELECTORS) || findFirstTitleByFallback(row);
   }
 
   function parseUrl(rawUrl) {
@@ -86,21 +92,28 @@
     }
   }
 
-  function getCurrentListId(source) {
-    const locationUrl = source && source.location && source.location.href;
-    const parsed = parseUrl(locationUrl);
+  function getListIdFromUrl(rawUrl) {
+    const parsed = parseUrl(rawUrl);
     if (!parsed) {
       return "";
     }
     return parsed.searchParams.get("list") || "";
   }
 
+  function getCurrentListId(source) {
+    const locationUrl = source && source.location && source.location.href;
+    return getListIdFromUrl(locationUrl);
+  }
+
   function getListIdFromHref(rawHref) {
-    const parsed = parseUrl(rawHref);
-    if (!parsed) {
+    return getListIdFromUrl(rawHref);
+  }
+
+  function extractListIdFromNode(node) {
+    if (!node || typeof node.getAttribute !== "function") {
       return "";
     }
-    return parsed.searchParams.get("list") || "";
+    return getListIdFromHref(node.getAttribute("href"));
   }
 
   function getRowListId(row) {
@@ -109,12 +122,7 @@
     }
 
     const link = row.querySelector('a[href*="watch?v="]') || row.querySelector('a[href*="/watch"]');
-    if (!link || typeof link.getAttribute !== "function") {
-      return "";
-    }
-
-    const href = link.getAttribute("href");
-    return getListIdFromHref(href);
+    return extractListIdFromNode(link);
   }
 
   function isHiddenNode(node, source) {
@@ -125,8 +133,7 @@
     const view = source && source.defaultView;
     let current = node;
     while (current) {
-      const isElement = current && current.nodeType === 1;
-
+      const isElement = current.nodeType === 1;
       if (isElement && current.hidden) {
         return true;
       }
@@ -143,7 +150,17 @@
     return false;
   }
 
-  function collectTitlesFromRows(rows, currentListId, source, useListFilter) {
+  function isAllowedForListId(candidateListId, currentListId) {
+    if (!currentListId) {
+      return true;
+    }
+    if (!candidateListId) {
+      return true;
+    }
+    return candidateListId === currentListId;
+  }
+
+  function collectTitlesFromRows(rows, currentListId, source, enforceListFilter) {
     const seen = new Set();
     const titles = [];
 
@@ -152,9 +169,9 @@
         continue;
       }
 
-      if (useListFilter && currentListId) {
+      if (enforceListFilter && currentListId) {
         const rowListId = getRowListId(row);
-        if (rowListId && rowListId !== currentListId) {
+        if (!isAllowedForListId(rowListId, currentListId)) {
           continue;
         }
       }
@@ -170,51 +187,54 @@
     return titles;
   }
 
-  function extractSongsFromDocument(doc) {
-    const source = doc || document;
-    const rows = Array.from(source.querySelectorAll("ytmusic-responsive-list-item-renderer"));
-    const currentListId = getCurrentListId(source);
-    const titles = collectTitlesFromRows(rows, currentListId, source, true);
-
-    if (titles.length === 0 && currentListId) {
-      const relaxedTitles = collectTitlesFromRows(rows, currentListId, source, false);
-      if (relaxedTitles.length > 0) {
-        return relaxedTitles;
-      }
-    } else if (titles.length > 0) {
-      return titles;
-    }
-
-    const fallbackLinks = Array.from(source.querySelectorAll('a[href*="watch?v="], a[href*="/watch"]'));
-    const fallbackSeen = new Set();
-    const fallbackTitles = [];
+  function collectFallbackTitles(source, currentListId) {
+    const seen = new Set();
+    const titles = [];
+    const fallbackLinks = Array.from(source.querySelectorAll(WATCH_LINK_SELECTOR));
 
     for (const link of fallbackLinks) {
       if (isHiddenNode(link, source)) {
         continue;
       }
 
-      if (currentListId) {
-        const href = typeof link.getAttribute === "function" ? link.getAttribute("href") : "";
-        const listId = getListIdFromHref(href);
-        if (listId && listId !== currentListId) {
-          continue;
-        }
+      const linkListId = extractListIdFromNode(link);
+      if (!isAllowedForListId(linkListId, currentListId)) {
+        continue;
       }
 
       const title = getText(link);
-      if (!title || fallbackSeen.has(title) || isHeaderLikeTitle(title)) {
+      if (!title || seen.has(title) || isHeaderLikeTitle(title)) {
         continue;
       }
-      fallbackSeen.add(title);
-      fallbackTitles.push(title);
+      seen.add(title);
+      titles.push(title);
     }
 
+    return titles;
+  }
+
+  function extractSongsFromDocument(doc) {
+    const source = doc || document;
+    const rows = Array.from(source.querySelectorAll("ytmusic-responsive-list-item-renderer"));
+    const currentListId = getCurrentListId(source);
+    const strictTitles = collectTitlesFromRows(rows, currentListId, source, true);
+    if (strictTitles.length > 0) {
+      return strictTitles;
+    }
+
+    if (currentListId) {
+      const relaxedTitles = collectTitlesFromRows(rows, currentListId, source, false);
+      if (relaxedTitles.length > 0) {
+        return relaxedTitles;
+      }
+    }
+
+    const fallbackTitles = collectFallbackTitles(source, currentListId);
     if (fallbackTitles.length > 0) {
       return fallbackTitles;
     }
 
-    return titles;
+    return strictTitles;
   }
 
   return {
