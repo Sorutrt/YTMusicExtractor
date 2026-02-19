@@ -61,6 +61,21 @@ mise exec node@24 -- node --check popupState.js
 mise exec node@24 -- node --check extractor.js
 ```
 
+## リリース（自動）
+
+`v*` 形式の Git タグを push すると、GitHub Actions が自動で以下を実行します。
+
+- テスト実行
+- 拡張ファイルを ZIP 化
+- ZIP を添付した GitHub Release の作成
+
+例:
+
+```powershell
+git tag v1.0.0
+git push origin v1.0.0
+```
+
 ## トラブルシュート
 
 - `曲が見つかりませんでした` と出る  

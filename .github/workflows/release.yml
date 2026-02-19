@@ -1,0 +1,48 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Run tests
+        run: |
+          node popupState.spec.js
+          node extractor.spec.js
+
+      - name: Build extension zip
+        id: build_zip
+        shell: bash
+        run: |
+          mkdir -p dist
+          zip_name="YTMusicExtractor-${GITHUB_REF_NAME}.zip"
+          zip -j "dist/${zip_name}" \
+            manifest.json \
+            content.js \
+            popup.html \
+            popup.js \
+            popupState.js \
+            extractor.js
+          echo "zip_path=dist/${zip_name}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.build_zip.outputs.zip_path }}
+          generate_release_notes: true
