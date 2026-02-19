@@ -3,6 +3,7 @@ const { extractSongsFromDocument } = require("./extractor");
 
 function createNode({ text = "", title = "", href = "", children = {} } = {}) {
   return {
+    nodeType: 1,
     innerText: text,
     textContent: text,
     getAttribute(name) {
@@ -22,8 +23,17 @@ function createNode({ text = "", title = "", href = "", children = {} } = {}) {
 
 function createRow(childBySelector) {
   return {
+    nodeType: 1,
+    hidden: false,
+    parentElement: null,
+    getClientRects() {
+      return [{}];
+    },
     querySelector(selector) {
       return childBySelector[selector] || null;
+    },
+    querySelectorAll() {
+      return [];
     },
   };
 }
@@ -77,6 +87,145 @@ function runTests() {
 
     const result = extractSongsFromDocument(doc);
     assert.deepEqual(result, ["Song A", "Song C"]);
+  }
+
+  {
+    const hiddenHomeSong = createNode({ title: "Home Song", href: "/watch?v=home" });
+    const visibleAlbumSong = createNode({ title: "Album Song", href: "/watch?v=album" });
+
+    const hiddenRow = createRow({ 'a[href*="watch?v="]': hiddenHomeSong });
+    hiddenRow.hidden = true;
+    hiddenRow.getClientRects = () => [];
+
+    const visibleRow = createRow({ 'a[href*="watch?v="]': visibleAlbumSong });
+
+    const doc = {
+      querySelectorAll(selector) {
+        if (selector === "ytmusic-browse-response, ytmusic-player-page, ytmusic-search-page") {
+          return [];
+        }
+        if (selector === "ytmusic-responsive-list-item-renderer") {
+          return [hiddenRow, visibleRow];
+        }
+        return [];
+      },
+    };
+
+    const result = extractSongsFromDocument(doc);
+    assert.deepEqual(result, ["Album Song"]);
+  }
+
+  {
+    const layoutlessButVisibleSong = createNode({
+      title: "Layoutless Visible Song",
+      href: "/watch?v=layoutless",
+    });
+    const row = createRow({ 'a[href*="watch?v="]': layoutlessButVisibleSong });
+    row.getClientRects = () => [];
+
+    const doc = {
+      defaultView: {
+        getComputedStyle() {
+          return { display: "block", visibility: "visible" };
+        },
+      },
+      querySelectorAll(selector) {
+        if (selector === "ytmusic-browse-response, ytmusic-player-page, ytmusic-search-page") {
+          return [];
+        }
+        if (selector === "ytmusic-responsive-list-item-renderer") {
+          return [row];
+        }
+        return [];
+      },
+    };
+
+    const result = extractSongsFromDocument(doc);
+    assert.deepEqual(result, ["Layoutless Visible Song"]);
+  }
+
+  {
+    const staleHomeSong = createNode({
+      title: "Stale Home Song",
+      href: "/watch?v=home123&list=HOME_LIST",
+    });
+    const currentPlaylistSong = createNode({
+      title: "Current Playlist Song",
+      href: "/watch?v=track123&list=TARGET_LIST",
+    });
+
+    const staleRow = createRow({ 'a[href*="watch?v="]': staleHomeSong });
+    const currentRow = createRow({ 'a[href*="watch?v="]': currentPlaylistSong });
+
+    const doc = {
+      location: {
+        href: "https://music.youtube.com/playlist?list=TARGET_LIST",
+      },
+      querySelectorAll(selector) {
+        if (selector === "ytmusic-responsive-list-item-renderer") {
+          return [staleRow, currentRow];
+        }
+        return [];
+      },
+    };
+
+    const result = extractSongsFromDocument(doc);
+    assert.deepEqual(result, ["Current Playlist Song"]);
+  }
+
+  {
+    const onlyMismatchedListSong = createNode({
+      title: "Mismatched But Should Fallback",
+      href: "/watch?v=zzz&list=DIFFERENT_LIST",
+    });
+    const row = createRow({ 'a[href*="watch?v="]': onlyMismatchedListSong });
+
+    const doc = {
+      location: {
+        href: "https://music.youtube.com/playlist?list=TARGET_LIST",
+      },
+      querySelectorAll(selector) {
+        if (selector === "ytmusic-responsive-list-item-renderer") {
+          return [row];
+        }
+        return [];
+      },
+    };
+
+    const result = extractSongsFromDocument(doc);
+    assert.deepEqual(result, ["Mismatched But Should Fallback"]);
+  }
+
+  {
+    const song = createNode({
+      title: "No Style Error Song",
+      href: "/watch?v=nostyle&list=TARGET_LIST",
+    });
+    const row = createRow({ 'a[href*="watch?v="]': song });
+    row.parentNode = { nodeType: 9 };
+
+    const doc = {
+      location: {
+        href: "https://music.youtube.com/playlist?list=TARGET_LIST",
+      },
+      defaultView: {
+        getComputedStyle(node) {
+          if (!node || node.nodeType !== 1) {
+            throw new Error("Window.getComputedStyle: Argument 1 does not implement interface Element.");
+          }
+          return { display: "block", visibility: "visible" };
+        },
+      },
+      querySelectorAll(selector) {
+        if (selector === "ytmusic-responsive-list-item-renderer") {
+          return [row];
+        }
+        return [];
+      },
+    };
+
+    const result = extractSongsFromDocument(doc);
+    assert.deepEqual(result, ["No Style Error Song"]);
   }
 }
 

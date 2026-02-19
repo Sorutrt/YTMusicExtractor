@@ -13,10 +13,11 @@ YouTube Music のアルバム/EP/プレイリストページから曲名一覧�
 
 - `manifest.json`: 拡張定義（MV3）
 - `popup.html`: ポップアップ UI
+- `popupState.js`: 対象 URL 判定とポップアップ状態制御
 - `popup.js`: ボタン処理、タブへの抽出処理注入
 - `extractor.js`: 曲名抽出ロジック（UI から分離）
+- `popupState.spec.js`: URL 判定の最小テスト
 - `extractor.spec.js`: 抽出ロジックの最小テスト
-- `content.js`: 現在は最小のプレースホルダー
 
 ## インストール（開発版）
 
@@ -48,6 +49,7 @@ Node は `mise` 経由で実行します。
 ### テスト実行
 
 ```powershell
+mise exec node@24 -- node popupState.spec.js
 mise exec node@24 -- node extractor.spec.js
 ```
 
@@ -55,6 +57,7 @@ mise exec node@24 -- node extractor.spec.js
 
 ```powershell
 mise exec node@24 -- node --check popup.js
+mise exec node@24 -- node --check popupState.js
 mise exec node@24 -- node --check extractor.js
 ```
 
