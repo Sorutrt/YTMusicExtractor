@@ -23,6 +23,7 @@ jobs:
 
       - name: Run tests
         run: |
+          node manifest.spec.js
           node popupState.spec.js
           node extractor.spec.js
 

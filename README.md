@@ -49,6 +49,7 @@ Node は `mise` 経由で実行します。
 ### テスト実行
 
 ```powershell
+mise exec node@24 -- node manifest.spec.js
 mise exec node@24 -- node popupState.spec.js
 mise exec node@24 -- node extractor.spec.js
 ```
