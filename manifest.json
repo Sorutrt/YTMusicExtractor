@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "YT Music Song Extractor",
+  "version": "1.0",
+  "description": "YouTube Musicのプレイリストから曲名のみを抽出します",
+  "permissions": ["activeTab", "scripting"],
+  "host_permissions": ["https://music.youtube.com/*"],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://music.youtube.com/*"],
+      "js": ["content.js"]
+    }
+  ]
+}
+
