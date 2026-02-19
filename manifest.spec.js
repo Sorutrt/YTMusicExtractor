@@ -9,6 +9,14 @@ function runTests() {
   assert.ok(manifest.browser_specific_settings.gecko);
   assert.equal(typeof manifest.browser_specific_settings.gecko.id, "string");
   assert.notEqual(manifest.browser_specific_settings.gecko.id.trim(), "");
+  assert.ok(manifest.browser_specific_settings.gecko.data_collection_permissions);
+  assert.ok(
+    Array.isArray(manifest.browser_specific_settings.gecko.data_collection_permissions.required),
+  );
+  assert.deepEqual(
+    manifest.browser_specific_settings.gecko.data_collection_permissions.required,
+    ["none"],
+  );
 }
 
 try {
